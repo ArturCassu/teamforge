@@ -4,6 +4,7 @@ import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createRoom } from '@/lib/api';
 import { DEFAULT_SKILL_TEMPLATES } from '@/lib/types';
+import { extractSkillNames } from '@/lib/ocr';
 
 export default function Home() {
   const router = useRouter();
@@ -16,6 +17,11 @@ export default function Home() {
   const [createError, setCreateError] = useState('');
   const [showSkillEditor, setShowSkillEditor] = useState(false);
   const skillInputRef = useRef<HTMLInputElement>(null);
+
+  // OCR for skills
+  const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const ocrFileRef = useRef<HTMLInputElement>(null);
 
   // Join Room
   const [joinCode, setJoinCode] = useState('');
@@ -44,6 +50,38 @@ export default function Home() {
     if (e.key === 'Enter') {
       e.preventDefault();
       addSkill(skillInput);
+    }
+  };
+
+  // ─── OCR: extract skill names from image ─────────────────────
+  const handleOcrSkills = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setOcrProcessing(true);
+    setOcrProgress(0);
+    setCreateError('');
+
+    try {
+      const result = await extractSkillNames(file, (p) => setOcrProgress(p));
+
+      if (result.skills.length === 0) {
+        setCreateError('Nenhuma skill encontrada na imagem. Tente uma foto mais nítida.');
+      } else {
+        // Merge with existing, avoiding duplicates
+        setSkills((prev) => {
+          const existing = new Set(prev.map((s) => s.toLowerCase()));
+          const newSkills = result.skills.filter(
+            (s) => !existing.has(s.toLowerCase())
+          );
+          return [...prev, ...newSkills];
+        });
+      }
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Erro no OCR');
+    } finally {
+      setOcrProcessing(false);
+      if (ocrFileRef.current) ocrFileRef.current.value = '';
     }
   };
 
@@ -157,11 +195,11 @@ export default function Home() {
           {/* Skill editor — shows when name is typed */}
           {showSkillEditor && (
             <div className="space-y-3 animate-fade-in">
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-zinc-400 font-medium">
+              <div className="flex items-center justify-between gap-2">
+                <label className="text-sm text-zinc-400 font-medium shrink-0">
                   Skills ({skills.length})
                 </label>
-                {/* Template buttons */}
+                {/* Template + OCR buttons */}
                 <div className="flex gap-1.5 flex-wrap justify-end">
                   {Object.keys(DEFAULT_SKILL_TEMPLATES).map((name) => (
                     <button
@@ -175,8 +213,49 @@ export default function Home() {
                       {name}
                     </button>
                   ))}
+
+                  {/* OCR button */}
+                  <input
+                    ref={ocrFileRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handleOcrSkills}
+                    className="hidden"
+                    id="ocr-skills-input"
+                  />
+                  <button
+                    type="button"
+                    disabled={ocrProcessing}
+                    onClick={() => ocrFileRef.current?.click()}
+                    className="text-xs px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-400
+                      hover:bg-amber-500/20 transition-colors cursor-pointer
+                      border border-amber-500/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                    title="Extrair skills de uma foto"
+                  >
+                    📷 OCR
+                  </button>
                 </div>
               </div>
+
+              {/* OCR processing */}
+              {ocrProcessing && (
+                <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-3 space-y-2 animate-fade-in">
+                  <div className="flex items-center gap-2 text-amber-400 text-sm font-medium">
+                    <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Extraindo skills da imagem... {ocrProgress}%
+                  </div>
+                  <div className="w-full bg-zinc-800 rounded-full h-1.5">
+                    <div
+                      className="bg-amber-500 h-1.5 rounded-full transition-all duration-300"
+                      style={{ width: `${ocrProgress}%` }}
+                    />
+                  </div>
+                </div>
+              )}
 
               {/* Skill tags */}
               {skills.length > 0 && (

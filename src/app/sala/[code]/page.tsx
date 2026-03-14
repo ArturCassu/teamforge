@@ -1,10 +1,11 @@
 'use client';
 
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useParams } from 'next/navigation';
 import type { SkillScore } from '@/lib/types';
 import type { RoomData, SkillData } from '@/lib/api';
 import { getRoom, addPerson } from '@/lib/api';
+import { processFormImage, type OcrResult } from '@/lib/ocr';
 
 type PageState = 'loading' | 'form' | 'submitted' | 'locked' | 'error';
 
@@ -22,6 +23,13 @@ export default function ParticipantPage() {
   const [scores, setScores] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
 
+  // OCR state
+  const [ocrProcessing, setOcrProcessing] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+  const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
+  const [showOcrReview, setShowOcrReview] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Fetch room on mount
   useEffect(() => {
     let cancelled = false;
@@ -31,7 +39,6 @@ export default function ParticipantPage() {
         if (cancelled) return;
         setRoom(data);
 
-        // Initialize scores for this room's skills (default 5)
         const defaultScores: Record<string, number> = {};
         for (const skill of data.skills) {
           defaultScores[skill.id] = 5;
@@ -71,7 +78,7 @@ export default function ParticipantPage() {
       await addPerson(code, {
         name: trimmed,
         scores: skillScores,
-        addedVia: 'manual',
+        addedVia: ocrResult ? 'ocr' : 'manual',
       });
 
       setPageState('submitted');
@@ -82,7 +89,50 @@ export default function ParticipantPage() {
     }
   };
 
-  // ─── LOADING ────────────────────────────────────────────────────
+  // ─── OCR handlers ───────────────────────────────────────────
+  const handleOcrFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !room) return;
+
+    setOcrProcessing(true);
+    setOcrProgress(0);
+    setErrorMsg('');
+
+    try {
+      const result = await processFormImage(
+        file,
+        room.skills.map((s) => ({ id: s.id, name: s.name })),
+        (p) => setOcrProgress(p),
+      );
+
+      setOcrResult(result);
+
+      // Apply extracted data
+      if (result.name && !name.trim()) {
+        setName(result.name);
+      }
+
+      if (result.scores.length > 0) {
+        setScores((prev) => {
+          const updated = { ...prev };
+          for (const s of result.scores) {
+            updated[s.skillId] = s.score;
+          }
+          return updated;
+        });
+      }
+
+      setShowOcrReview(true);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Erro no OCR');
+    } finally {
+      setOcrProcessing(false);
+      // Reset input so same file can be re-selected
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  // ─── LOADING ────────────────────────────────────────────────
   if (pageState === 'loading') {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20 animate-fade-in">
@@ -95,7 +145,7 @@ export default function ParticipantPage() {
     );
   }
 
-  // ─── ERROR ──────────────────────────────────────────────────────
+  // ─── ERROR ──────────────────────────────────────────────────
   if (pageState === 'error') {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20 animate-fade-in">
@@ -108,7 +158,7 @@ export default function ParticipantPage() {
     );
   }
 
-  // ─── LOCKED ─────────────────────────────────────────────────────
+  // ─── LOCKED ─────────────────────────────────────────────────
   if (pageState === 'locked') {
     return (
       <div className="flex flex-col items-center justify-center gap-4 py-20 animate-fade-in">
@@ -127,7 +177,7 @@ export default function ParticipantPage() {
     );
   }
 
-  // ─── SUBMITTED ──────────────────────────────────────────────────
+  // ─── SUBMITTED ──────────────────────────────────────────────
   if (pageState === 'submitted') {
     return (
       <div className="flex flex-col items-center justify-center gap-6 py-20 animate-fade-in">
@@ -147,7 +197,7 @@ export default function ParticipantPage() {
     );
   }
 
-  // ─── FORM ───────────────────────────────────────────────────────
+  // ─── FORM ───────────────────────────────────────────────────
   const roomSkills = room?.skills ?? [];
 
   return (
@@ -170,7 +220,85 @@ export default function ParticipantPage() {
         onSubmit={handleSubmit}
         className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 space-y-6"
       >
-        <h2 className="text-lg font-semibold text-white">📝 Suas Skills</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold text-white">📝 Suas Skills</h2>
+
+          {/* OCR button */}
+          <div className="relative">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleOcrFile}
+              className="hidden"
+              id="ocr-file-input"
+            />
+            <button
+              type="button"
+              disabled={ocrProcessing}
+              onClick={() => fileInputRef.current?.click()}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm
+                bg-amber-500/10 text-amber-400 border border-amber-500/20
+                hover:bg-amber-500/20 transition-colors cursor-pointer
+                disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Escanear formulário preenchido"
+            >
+              📷 OCR
+            </button>
+          </div>
+        </div>
+
+        {/* OCR processing indicator */}
+        {ocrProcessing && (
+          <div className="rounded-xl bg-amber-500/10 border border-amber-500/20 p-4 space-y-2 animate-fade-in">
+            <div className="flex items-center gap-2 text-amber-400 text-sm font-medium">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Processando imagem... {ocrProgress}%
+            </div>
+            <div className="w-full bg-zinc-800 rounded-full h-1.5">
+              <div
+                className="bg-amber-500 h-1.5 rounded-full transition-all duration-300"
+                style={{ width: `${ocrProgress}%` }}
+              />
+            </div>
+          </div>
+        )}
+
+        {/* OCR review banner */}
+        {showOcrReview && ocrResult && (
+          <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-4 space-y-2 animate-fade-in">
+            <div className="flex items-center justify-between">
+              <span className="text-emerald-400 text-sm font-medium">
+                📷 OCR: {ocrResult.scores.length}/{roomSkills.length} skills detectadas
+                ({Math.round(ocrResult.confidence * 100)}% confiança)
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowOcrReview(false)}
+                className="text-zinc-500 hover:text-zinc-300 text-sm cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+            {ocrResult.warnings.length > 0 && (
+              <details className="text-xs text-zinc-500">
+                <summary className="cursor-pointer hover:text-zinc-400">
+                  ⚠️ {ocrResult.warnings.length} avisos
+                </summary>
+                <ul className="mt-1 space-y-0.5 pl-4 list-disc">
+                  {ocrResult.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              </details>
+            )}
+            <p className="text-xs text-zinc-500">
+              Revise os valores abaixo e ajuste se necessário antes de enviar.
+            </p>
+          </div>
+        )}
 
         {/* Name */}
         <div>
@@ -201,6 +329,7 @@ export default function ParticipantPage() {
                 skill={skill}
                 value={scores[skill.id] ?? 5}
                 onChange={(val) => handleScoreChange(skill.id, val)}
+                highlighted={ocrResult?.scores.some((s) => s.skillId === skill.id)}
               />
             ))}
           </div>
@@ -234,18 +363,21 @@ export default function ParticipantPage() {
   );
 }
 
-// ─── SkillRow ─────────────────────────────────────────────────────
+// ─── SkillRow ─────────────────────────────────────────────────
 function SkillRow({
   skill,
   value,
   onChange,
+  highlighted,
 }: {
   skill: SkillData;
   value: number;
   onChange: (v: number) => void;
+  highlighted?: boolean;
 }) {
   return (
-    <div className="flex items-center gap-3 group">
+    <div className={`flex items-center gap-3 group rounded-lg px-1 py-0.5 transition-colors
+      ${highlighted ? 'bg-amber-500/5 ring-1 ring-amber-500/20' : ''}`}>
       <label
         htmlFor={`skill-${skill.id}`}
         className="text-sm text-zinc-300 w-44 shrink-0 truncate cursor-pointer"

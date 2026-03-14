@@ -6,7 +6,7 @@ interface SkillRef {
   name: string;
 }
 
-interface OcrResult {
+export interface OcrResult {
   name: string | null;
   scores: SkillScore[];
   confidence: number;
@@ -14,22 +14,33 @@ interface OcrResult {
   warnings: string[];
 }
 
-/**
- * Processa imagem do formulário preenchido e extrai nome + notas.
- * Agora recebe as skills da sala como parâmetro (não hardcoded).
- */
-export async function processFormImage(
-  imageFile: File,
-  skills: SkillRef[],
-  onProgress?: (progress: number) => void
-): Promise<OcrResult> {
-  const worker = await Tesseract.createWorker('por', undefined, {
+export interface OcrSkillsResult {
+  skills: string[];
+  rawText: string;
+}
+
+// ─── Shared worker creation ────────────────────────────────────
+async function createOcrWorker(onProgress?: (progress: number) => void) {
+  return Tesseract.createWorker('por', undefined, {
     logger: (m) => {
       if (m.status === 'recognizing text' && onProgress) {
         onProgress(Math.round(m.progress * 100));
       }
     },
   });
+}
+
+// ─── 1. Extract scores from filled form image ─────────────────
+/**
+ * Processa imagem do formulário preenchido e extrai nome + notas.
+ * Recebe as skills da sala como parâmetro.
+ */
+export async function processFormImage(
+  imageFile: File,
+  skills: SkillRef[],
+  onProgress?: (progress: number) => void
+): Promise<OcrResult> {
+  const worker = await createOcrWorker(onProgress);
 
   try {
     const { data } = await worker.recognize(imageFile);
@@ -53,6 +64,65 @@ export async function processFormImage(
     const confidence = skills.length > 0 ? scores.length / skills.length : 0;
 
     return { name, scores, confidence, rawText, warnings };
+  } finally {
+    await worker.terminate();
+  }
+}
+
+// ─── 2. Extract skill names from image (for room creation) ────
+/**
+ * Extrai nomes de skills de uma imagem (lista, quadro, post-its, etc).
+ * Cada linha com 2+ caracteres alfa vira uma skill candidata.
+ * Filtra ruído (números soltos, linhas muito curtas, headers genéricos).
+ */
+export async function extractSkillNames(
+  imageFile: File,
+  onProgress?: (progress: number) => void
+): Promise<OcrSkillsResult> {
+  const worker = await createOcrWorker(onProgress);
+
+  try {
+    const { data } = await worker.recognize(imageFile);
+    const rawText = data.text;
+    const lines = rawText.split('\n').map((l) => l.trim()).filter(Boolean);
+
+    const NOISE = new Set([
+      'skills', 'skill', 'nome', 'name', 'nota', 'notas', 'score', 'scores',
+      'avaliacao', 'avaliação', 'formulario', 'formulário', 'soft skills',
+      'competencias', 'competências', 'habilidades',
+    ]);
+
+    const skills: string[] = [];
+    const seen = new Set<string>();
+
+    for (const line of lines) {
+      // Remove leading bullets, dashes, numbers (e.g. "1. ", "- ", "• ")
+      let cleaned = line
+        .replace(/^[\d\.\)\-•●○◦▪︎▸►→\s]+/, '')
+        .replace(/\s*[:.\-]\s*\d+\s*$/, '')  // remove trailing ": 7" or "- 8"
+        .trim();
+
+      // Must have >= 2 alpha chars
+      const alphaCount = (cleaned.match(/[a-záàâãéèêíìóòôõúùûçñ]/gi) || []).length;
+      if (alphaCount < 2) continue;
+
+      // Skip noise
+      const normalized = normalizeStr(cleaned);
+      if (NOISE.has(normalized)) continue;
+
+      // Skip if too long (probably a sentence, not a skill name)
+      if (cleaned.length > 60) continue;
+
+      // Deduplicate
+      if (seen.has(normalized)) continue;
+      seen.add(normalized);
+
+      // Capitalize first letter
+      cleaned = cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+      skills.push(cleaned);
+    }
+
+    return { skills, rawText };
   } finally {
     await worker.terminate();
   }
