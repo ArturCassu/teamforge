@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+enum RoomStatus {
+  OPEN
+  LOCKED
+  DONE
+}
+
+model Room {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  name      String
+  teamSize  Int        @default(5)
+  status    RoomStatus @default(OPEN)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  people Person[]
+  teams  Team[]
+
+  @@index([code])
+}
+
+model Person {
+  id        String   @id @default(cuid())
+  name      String
+  addedVia  String   @default("manual")
+  createdAt DateTime @default(now())
+
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  teamId String?
+  team   Team?   @relation(fields: [teamId], references: [id], onDelete: SetNull)
+
+  scores Score[]
+
+  @@index([roomId])
+  @@index([teamId])
+}
+
+model Score {
+  id      String @id @default(cuid())
+  skillId String
+  score   Int
+
+  personId String
+  person   Person @relation(fields: [personId], references: [id], onDelete: Cascade)
+
+  @@unique([personId, skillId])
+  @@index([personId])
+}
+
+model Team {
+  id    String @id @default(cuid())
+  name  String
+  order Int
+
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  members Person[]
+
+  @@index([roomId])
+}
