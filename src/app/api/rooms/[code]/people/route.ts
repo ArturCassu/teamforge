@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
-import { SKILLS } from '@/lib/skills';
 
 type RouteParams = { params: Promise<{ code: string }> };
-
-const validSkillIds = new Set(SKILLS.map((s) => s.id));
 
 export async function GET(_request: NextRequest, { params }: RouteParams) {
   try {
@@ -65,21 +62,6 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    for (const s of scores) {
-      if (!s.skillId || !validSkillIds.has(s.skillId)) {
-        return NextResponse.json(
-          { error: `Invalid skillId: ${s.skillId}` },
-          { status: 400 },
-        );
-      }
-      if (typeof s.score !== 'number' || s.score < 1 || s.score > 10) {
-        return NextResponse.json(
-          { error: `Score must be a number between 1 and 10 (got ${s.score} for ${s.skillId})` },
-          { status: 400 },
-        );
-      }
-    }
-
     // Validate addedVia
     const via = addedVia ?? 'manual';
     if (!['manual', 'ocr'].includes(via)) {
@@ -89,10 +71,31 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // Find room
-    const room = await prisma.room.findUnique({ where: { code } });
+    // Find room with its skills
+    const room = await prisma.room.findUnique({
+      where: { code },
+      include: { skills: true },
+    });
     if (!room) {
       return NextResponse.json({ error: 'Room not found' }, { status: 404 });
+    }
+
+    // Validate scores against room's skills (not hardcoded)
+    const validSkillIds = new Set(room.skills.map((s) => s.id));
+
+    for (const s of scores) {
+      if (!s.skillId || !validSkillIds.has(s.skillId)) {
+        return NextResponse.json(
+          { error: `Invalid skillId: ${s.skillId}. Must be one of the room's skills.` },
+          { status: 400 },
+        );
+      }
+      if (typeof s.score !== 'number' || s.score < 1 || s.score > 10) {
+        return NextResponse.json(
+          { error: `Score must be a number between 1 and 10 (got ${s.score} for ${s.skillId})` },
+          { status: 400 },
+        );
+      }
     }
 
     // Create person + scores in a transaction

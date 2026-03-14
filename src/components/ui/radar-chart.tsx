@@ -1,25 +1,12 @@
 'use client';
 
-import { CATEGORY_LABELS, type SkillCategory } from '@/lib/types';
-import { SKILLS, getCategories } from '@/lib/skills';
+import type { SkillData } from '@/lib/api';
 
 interface RadarChartProps {
   scores: Record<string, number>;
+  skills: SkillData[];
   size?: number;
   color?: string;
-}
-
-function getCategoryAverage(
-  category: SkillCategory,
-  scores: Record<string, number>,
-): number {
-  const categorySkills = SKILLS.filter((s) => s.category === category);
-  const values = categorySkills
-    .map((s) => scores[s.id])
-    .filter((v): v is number => v !== undefined && v > 0);
-
-  if (values.length === 0) return 0;
-  return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
 function polarToCartesian(
@@ -36,20 +23,22 @@ function polarToCartesian(
 
 export function RadarChart({
   scores,
+  skills,
   size = 300,
   color = '#3B82F6',
 }: RadarChartProps) {
-  const categories = getCategories();
-  const count = categories.length; // 6
+  const count = skills.length;
+  if (count < 3) return null; // Radar needs at least 3 axes
+
   const cx = size / 2;
   const cy = size / 2;
   const maxRadius = size * 0.36;
   const labelRadius = size * 0.46;
-  const startAngle = -Math.PI / 2; // top
+  const startAngle = -Math.PI / 2;
 
   const rings = [0.25, 0.5, 0.75, 1];
 
-  const axisPoints = categories.map((_, i) => {
+  const axisPoints = skills.map((_, i) => {
     const angle = startAngle + (2 * Math.PI * i) / count;
     return {
       angle,
@@ -59,14 +48,17 @@ export function RadarChart({
   });
 
   // Data polygon points
-  const dataPoints = categories.map((cat, i) => {
-    const avg = getCategoryAverage(cat, scores);
-    const normalizedRadius = (avg / 10) * maxRadius;
+  const dataPoints = skills.map((skill, i) => {
+    const val = scores[skill.id] ?? 0;
+    const normalizedRadius = (val / 10) * maxRadius;
     const angle = startAngle + (2 * Math.PI * i) / count;
     return polarToCartesian(cx, cy, normalizedRadius, angle);
   });
 
   const dataPolygon = dataPoints.map((p) => `${p.x},${p.y}`).join(' ');
+
+  // For many skills, truncate labels
+  const maxLabelLen = count > 15 ? 6 : count > 8 ? 10 : 20;
 
   return (
     <svg
@@ -77,7 +69,7 @@ export function RadarChart({
     >
       {/* Grid rings */}
       {rings.map((scale) => {
-        const ringPoints = categories.map((_, i) => {
+        const ringPoints = skills.map((_, i) => {
           const angle = startAngle + (2 * Math.PI * i) / count;
           return polarToCartesian(cx, cy, maxRadius * scale, angle);
         });
@@ -89,7 +81,7 @@ export function RadarChart({
             fill="none"
             stroke="currentColor"
             strokeWidth={0.5}
-            className="text-zinc-300 dark:text-zinc-700"
+            className="text-zinc-700"
           />
         );
       })}
@@ -104,7 +96,7 @@ export function RadarChart({
           y2={ap.outer.y}
           stroke="currentColor"
           strokeWidth={0.5}
-          className="text-zinc-300 dark:text-zinc-700"
+          className="text-zinc-700"
         />
       ))}
 
@@ -118,17 +110,15 @@ export function RadarChart({
         strokeLinejoin="round"
       />
 
-      {/* Data points (dots) */}
+      {/* Data points */}
       {dataPoints.map((p, i) => (
         <circle key={i} cx={p.x} cy={p.y} r={3} fill={color} />
       ))}
 
-      {/* Axis labels */}
-      {categories.map((cat, i) => {
+      {/* Labels */}
+      {skills.map((skill, i) => {
         const lp = axisPoints[i].label;
-        const avg = getCategoryAverage(cat, scores);
-
-        // Text anchor based on position
+        const val = scores[skill.id] ?? 0;
         const angle = axisPoints[i].angle;
         const cos = Math.cos(angle);
         let textAnchor: 'start' | 'middle' | 'end' = 'middle';
@@ -137,24 +127,23 @@ export function RadarChart({
 
         const sin = Math.sin(angle);
         const dy = sin > 0.3 ? '1em' : sin < -0.3 ? '-0.2em' : '0.35em';
+        const label = skill.name.length > maxLabelLen
+          ? skill.name.slice(0, maxLabelLen) + '…'
+          : skill.name;
 
         return (
           <text
-            key={cat}
+            key={skill.id}
             x={lp.x}
             y={lp.y}
             textAnchor={textAnchor}
             dy={dy}
-            className="fill-zinc-600 dark:fill-zinc-400"
-            style={{ fontSize: size * 0.037 }}
+            className="fill-zinc-400"
+            style={{ fontSize: size * 0.035 }}
           >
-            {CATEGORY_LABELS[cat]}
-            <tspan
-              className="fill-zinc-400 dark:fill-zinc-500"
-              dx={4}
-              style={{ fontSize: size * 0.032 }}
-            >
-              {avg > 0 ? avg.toFixed(1) : '—'}
+            {label}
+            <tspan className="fill-zinc-500" dx={3} style={{ fontSize: size * 0.03 }}>
+              {val > 0 ? val.toFixed(1) : '—'}
             </tspan>
           </text>
         );

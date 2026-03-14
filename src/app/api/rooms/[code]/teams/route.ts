@@ -1,19 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { buildTeams } from '@/lib/team-builder';
-import type { Person as InMemoryPerson } from '@/lib/types';
+import type { Person as InMemoryPerson, RoomSkill } from '@/lib/types';
 
 type RouteParams = { params: Promise<{ code: string }> };
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 async function findRoomByCode(code: string) {
-  return prisma.room.findUnique({ where: { code } });
+  return prisma.room.findUnique({
+    where: { code },
+    include: { skills: { orderBy: { order: 'asc' } } },
+  });
 }
 
-/** Fetch room teams with members + scores, ordered consistently. */
 async function fetchTeamsForRoom(roomId: string) {
   const teams = await prisma.team.findMany({
     where: { roomId },
@@ -43,10 +41,7 @@ async function fetchTeamsForRoom(roomId: string) {
   }));
 }
 
-// ---------------------------------------------------------------------------
-// POST — Build teams using the algorithm
-// ---------------------------------------------------------------------------
-
+// POST — Build teams
 export async function POST(_request: NextRequest, { params }: RouteParams) {
   try {
     const { code } = await params;
@@ -56,7 +51,6 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Room not found' }, { status: 404 });
     }
 
-    // 1. Fetch all people with scores
     const dbPeople = await prisma.person.findMany({
       where: { roomId: room.id },
       include: { scores: true },
@@ -70,7 +64,6 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       );
     }
 
-    // 2. Convert Prisma models → in-memory Person[] format
     const inMemoryPeople: InMemoryPerson[] = dbPeople.map((p) => ({
       id: p.id,
       name: p.name,
@@ -82,21 +75,22 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       createdAt: p.createdAt.getTime(),
     }));
 
-    // 3. Run team-building algorithm
-    const builtTeams = buildTeams(inMemoryPeople, room.teamSize);
+    // Pass room skills to the builder
+    const roomSkills: RoomSkill[] = room.skills.map((s) => ({
+      id: s.id,
+      name: s.name,
+      order: s.order,
+    }));
 
-    // 4. Replace teams in a transaction
+    const builtTeams = buildTeams(inMemoryPeople, room.teamSize, roomSkills);
+
     await prisma.$transaction(async (tx) => {
-      // Reset all person teamIds
       await tx.person.updateMany({
         where: { roomId: room.id },
         data: { teamId: null },
       });
-
-      // Delete existing teams
       await tx.team.deleteMany({ where: { roomId: room.id } });
 
-      // Create new teams and assign members
       for (let i = 0; i < builtTeams.length; i++) {
         const bt = builtTeams[i];
         const team = await tx.team.create({
@@ -107,7 +101,6 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
           },
         });
 
-        // Assign members to this team
         const memberIds = bt.members.map((m) => m.id);
         if (memberIds.length > 0) {
           await tx.person.updateMany({
@@ -118,7 +111,6 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
       }
     });
 
-    // 5. Fetch and return the created teams
     const teams = await fetchTeamsForRoom(room.id);
     return NextResponse.json(teams, { status: 201 });
   } catch (error) {
@@ -130,10 +122,7 @@ export async function POST(_request: NextRequest, { params }: RouteParams) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// PATCH — Move a person between teams (drag & drop)
-// ---------------------------------------------------------------------------
-
+// PATCH — Move person between teams
 export async function PATCH(request: NextRequest, { params }: RouteParams) {
   try {
     const { code } = await params;
@@ -141,17 +130,10 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
     const { personId, targetTeamId } = body;
 
     if (!personId || typeof personId !== 'string') {
-      return NextResponse.json(
-        { error: 'personId is required' },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: 'personId is required' }, { status: 400 });
     }
-
     if (!targetTeamId || typeof targetTeamId !== 'string') {
-      return NextResponse.json(
-        { error: 'targetTeamId is required' },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: 'targetTeamId is required' }, { status: 400 });
     }
 
     const room = await findRoomByCode(code);
@@ -159,48 +141,30 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Room not found' }, { status: 404 });
     }
 
-    // Verify person belongs to this room
     const person = await prisma.person.findUnique({ where: { id: personId } });
     if (!person || person.roomId !== room.id) {
-      return NextResponse.json(
-        { error: 'Person not found in this room' },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: 'Person not found in this room' }, { status: 404 });
     }
 
-    // Verify target team belongs to this room
-    const targetTeam = await prisma.team.findUnique({
-      where: { id: targetTeamId },
-    });
+    const targetTeam = await prisma.team.findUnique({ where: { id: targetTeamId } });
     if (!targetTeam || targetTeam.roomId !== room.id) {
-      return NextResponse.json(
-        { error: 'Target team not found in this room' },
-        { status: 404 },
-      );
+      return NextResponse.json({ error: 'Target team not found in this room' }, { status: 404 });
     }
 
-    // Move the person
     await prisma.person.update({
       where: { id: personId },
       data: { teamId: targetTeamId },
     });
 
-    // Return updated teams
     const teams = await fetchTeamsForRoom(room.id);
     return NextResponse.json(teams);
   } catch (error) {
     console.error('PATCH /api/rooms/[code]/teams error:', error);
-    return NextResponse.json(
-      { error: 'Failed to move person' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Failed to move person' }, { status: 500 });
   }
 }
 
-// ---------------------------------------------------------------------------
-// DELETE — Clear all teams from room
-// ---------------------------------------------------------------------------
-
+// DELETE — Clear all teams
 export async function DELETE(_request: NextRequest, { params }: RouteParams) {
   try {
     const { code } = await params;
@@ -211,22 +175,16 @@ export async function DELETE(_request: NextRequest, { params }: RouteParams) {
     }
 
     await prisma.$transaction(async (tx) => {
-      // Reset all person teamIds first (avoid FK constraint issues)
       await tx.person.updateMany({
         where: { roomId: room.id },
         data: { teamId: null },
       });
-
-      // Delete all teams
       await tx.team.deleteMany({ where: { roomId: room.id } });
     });
 
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('DELETE /api/rooms/[code]/teams error:', error);
-    return NextResponse.json(
-      { error: 'Failed to clear teams' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: 'Failed to clear teams' }, { status: 500 });
   }
 }

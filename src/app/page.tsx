@@ -1,30 +1,65 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { createRoom } from '@/lib/api';
+import { DEFAULT_SKILL_TEMPLATES } from '@/lib/types';
 
 export default function Home() {
   const router = useRouter();
 
   // Create Room
   const [roomName, setRoomName] = useState('');
+  const [skills, setSkills] = useState<string[]>([]);
+  const [skillInput, setSkillInput] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  const [showSkillEditor, setShowSkillEditor] = useState(false);
+  const skillInputRef = useRef<HTMLInputElement>(null);
 
   // Join Room
   const [joinCode, setJoinCode] = useState('');
   const [joinError, setJoinError] = useState('');
 
+  const addSkill = useCallback((name: string) => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (skills.some((s) => s.toLowerCase() === trimmed.toLowerCase())) return;
+    setSkills((prev) => [...prev, trimmed]);
+    setSkillInput('');
+    skillInputRef.current?.focus();
+  }, [skills]);
+
+  const removeSkill = useCallback((index: number) => {
+    setSkills((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
+  const loadTemplate = useCallback((templateName: string) => {
+    const template = DEFAULT_SKILL_TEMPLATES[templateName];
+    if (!template) return;
+    setSkills(template);
+  }, []);
+
+  const handleSkillKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addSkill(skillInput);
+    }
+  };
+
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmed = roomName.trim();
     if (!trimmed) return;
+    if (skills.length === 0) {
+      setCreateError('Adicione pelo menos uma skill');
+      return;
+    }
 
     setCreating(true);
     setCreateError('');
     try {
-      const room = await createRoom(trimmed);
+      const room = await createRoom(trimmed, skills);
       router.push(`/sala/${room.code}/admin`);
     } catch (err) {
       setCreateError(err instanceof Error ? err.message : 'Erro ao criar sala');
@@ -44,9 +79,9 @@ export default function Home() {
 
   const features = [
     {
-      icon: '📊',
-      title: '30 Soft Skills',
-      desc: '6 categorias cobrindo comunicação, liderança, colaboração e mais',
+      icon: '✏️',
+      title: 'Skills Customizáveis',
+      desc: 'Defina suas próprias skills ou use templates prontos',
     },
     {
       icon: '🧠',
@@ -80,8 +115,8 @@ export default function Home() {
           por Soft Skills
         </h2>
         <p className="text-zinc-400 text-lg max-w-lg mx-auto">
-          Crie uma sala, compartilhe o código. Cada participante avalia suas habilidades
-          e o algoritmo forma times equilibrados automaticamente.
+          Crie uma sala, defina as skills que importam, compartilhe o código.
+          O algoritmo forma times equilibrados automaticamente.
         </p>
       </section>
 
@@ -90,7 +125,7 @@ export default function Home() {
         {/* Create Room */}
         <form
           onSubmit={handleCreate}
-          className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 space-y-4"
+          className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 space-y-4 sm:col-span-2"
         >
           <div className="flex items-center gap-3">
             <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-emerald-500/15 text-xl">
@@ -98,25 +133,99 @@ export default function Home() {
             </span>
             <div>
               <h3 className="text-white font-semibold">Criar Sala</h3>
-              <p className="text-zinc-500 text-sm">Você será o organizador</p>
+              <p className="text-zinc-500 text-sm">Defina as skills e compartilhe o código</p>
             </div>
           </div>
 
-          <div>
-            <input
-              type="text"
-              value={roomName}
-              onChange={(e) => {
-                setRoomName(e.target.value);
-                setCreateError('');
-              }}
-              placeholder="Nome da sala (ex: Retro Q3)"
-              maxLength={60}
-              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-4 py-2.5 text-white
-                placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50
-                focus:border-emerald-500 transition-colors"
-            />
-          </div>
+          <input
+            type="text"
+            value={roomName}
+            onChange={(e) => {
+              setRoomName(e.target.value);
+              setCreateError('');
+              if (e.target.value.trim() && !showSkillEditor) {
+                setShowSkillEditor(true);
+              }
+            }}
+            placeholder="Nome da sala (ex: Retro Q3)"
+            maxLength={60}
+            className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-4 py-2.5 text-white
+              placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50
+              focus:border-emerald-500 transition-colors"
+          />
+
+          {/* Skill editor — shows when name is typed */}
+          {showSkillEditor && (
+            <div className="space-y-3 animate-fade-in">
+              <div className="flex items-center justify-between">
+                <label className="text-sm text-zinc-400 font-medium">
+                  Skills ({skills.length})
+                </label>
+                {/* Template buttons */}
+                <div className="flex gap-1.5 flex-wrap justify-end">
+                  {Object.keys(DEFAULT_SKILL_TEMPLATES).map((name) => (
+                    <button
+                      key={name}
+                      type="button"
+                      onClick={() => loadTemplate(name)}
+                      className="text-xs px-2.5 py-1 rounded-lg bg-zinc-800 text-zinc-400
+                        hover:text-white hover:bg-zinc-700 transition-colors cursor-pointer
+                        border border-zinc-700/50"
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Skill tags */}
+              {skills.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 p-3 rounded-xl bg-zinc-800/50 border border-zinc-800 max-h-40 overflow-y-auto">
+                  {skills.map((skill, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1 text-sm px-2.5 py-1 rounded-lg
+                        bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
+                    >
+                      {skill}
+                      <button
+                        type="button"
+                        onClick={() => removeSkill(i)}
+                        className="text-emerald-400/60 hover:text-red-400 transition-colors cursor-pointer ml-0.5"
+                      >
+                        ×
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* Add skill input */}
+              <div className="flex gap-2">
+                <input
+                  ref={skillInputRef}
+                  type="text"
+                  value={skillInput}
+                  onChange={(e) => setSkillInput(e.target.value)}
+                  onKeyDown={handleSkillKeyDown}
+                  placeholder="Adicionar skill (Enter para confirmar)"
+                  className="flex-1 rounded-xl bg-zinc-800 border border-zinc-700 px-4 py-2 text-white text-sm
+                    placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-emerald-500/50
+                    focus:border-emerald-500 transition-colors"
+                />
+                <button
+                  type="button"
+                  onClick={() => addSkill(skillInput)}
+                  disabled={!skillInput.trim()}
+                  className="px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-white text-sm
+                    font-medium transition-colors cursor-pointer disabled:opacity-40
+                    disabled:cursor-not-allowed border border-zinc-700"
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          )}
 
           {createError && (
             <p className="text-red-400 text-sm">{createError}</p>
@@ -124,7 +233,7 @@ export default function Home() {
 
           <button
             type="submit"
-            disabled={!roomName.trim() || creating}
+            disabled={!roomName.trim() || skills.length === 0 || creating}
             className="w-full py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500
               disabled:bg-zinc-700 disabled:text-zinc-500 text-white font-medium
               transition-colors cursor-pointer disabled:cursor-not-allowed"
@@ -138,7 +247,7 @@ export default function Home() {
                 Criando...
               </span>
             ) : (
-              'Criar Sala'
+              `Criar Sala com ${skills.length} skill${skills.length !== 1 ? 's' : ''}`
             )}
           </button>
         </form>
@@ -146,7 +255,7 @@ export default function Home() {
         {/* Join Room */}
         <form
           onSubmit={handleJoin}
-          className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 space-y-4"
+          className="bg-zinc-900 rounded-2xl border border-zinc-800 p-6 space-y-4 sm:col-span-2"
         >
           <div className="flex items-center gap-3">
             <span className="flex items-center justify-center w-10 h-10 rounded-xl bg-blue-500/15 text-xl">
@@ -158,25 +267,21 @@ export default function Home() {
             </div>
           </div>
 
-          <div>
-            <input
-              type="text"
-              value={joinCode}
-              onChange={(e) => {
-                setJoinCode(e.target.value.toUpperCase().slice(0, 6));
-                setJoinError('');
-              }}
-              placeholder="Ex: ABC123"
-              maxLength={6}
-              className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-4 py-2.5 text-white
-                placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50
-                focus:border-blue-500 transition-colors font-mono text-center text-lg tracking-widest uppercase"
-            />
-          </div>
+          <input
+            type="text"
+            value={joinCode}
+            onChange={(e) => {
+              setJoinCode(e.target.value.toUpperCase().slice(0, 6));
+              setJoinError('');
+            }}
+            placeholder="Ex: ABC123"
+            maxLength={6}
+            className="w-full rounded-xl bg-zinc-800 border border-zinc-700 px-4 py-2.5 text-white
+              placeholder:text-zinc-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50
+              focus:border-blue-500 transition-colors font-mono text-center text-lg tracking-widest uppercase"
+          />
 
-          {joinError && (
-            <p className="text-red-400 text-sm">{joinError}</p>
-          )}
+          {joinError && <p className="text-red-400 text-sm">{joinError}</p>}
 
           <button
             type="submit"

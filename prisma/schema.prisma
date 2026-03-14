@@ -25,8 +25,21 @@ model Room {
 
   people Person[]
   teams  Team[]
+  skills RoomSkill[]
 
   @@index([code])
+}
+
+model RoomSkill {
+  id    String @id @default(cuid())
+  name  String
+  order Int    @default(0)
+
+  roomId String
+  room   Room   @relation(fields: [roomId], references: [id], onDelete: Cascade)
+
+  @@unique([roomId, name])
+  @@index([roomId])
 }
 
 model Person {

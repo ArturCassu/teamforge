@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 function generateCode(length = 6): string {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no ambiguous 0/O, 1/I
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < length; i++) {
     code += chars[Math.floor(Math.random() * chars.length)];
@@ -22,7 +22,7 @@ async function generateUniqueCode(): Promise<string> {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { name, teamSize } = body;
+    const { name, teamSize, skills } = body;
 
     if (!name || typeof name !== 'string' || name.trim().length === 0) {
       return NextResponse.json(
@@ -38,6 +38,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Validate skills
+    if (!Array.isArray(skills) || skills.length === 0) {
+      return NextResponse.json(
+        { error: 'At least one skill is required' },
+        { status: 400 },
+      );
+    }
+
+    const skillNames: string[] = skills
+      .filter((s: unknown) => typeof s === 'string' && s.trim().length > 0)
+      .map((s: string) => s.trim());
+
+    if (skillNames.length === 0) {
+      return NextResponse.json(
+        { error: 'At least one valid skill name is required' },
+        { status: 400 },
+      );
+    }
+
+    // Deduplicate
+    const uniqueSkills = [...new Set(skillNames)];
+
     const code = await generateUniqueCode();
 
     const room = await prisma.room.create({
@@ -45,6 +67,15 @@ export async function POST(request: NextRequest) {
         code,
         name: name.trim(),
         ...(teamSize !== undefined && { teamSize }),
+        skills: {
+          create: uniqueSkills.map((skillName, index) => ({
+            name: skillName,
+            order: index,
+          })),
+        },
+      },
+      include: {
+        skills: { orderBy: { order: 'asc' } },
       },
     });
 
@@ -55,6 +86,11 @@ export async function POST(request: NextRequest) {
         name: room.name,
         teamSize: room.teamSize,
         status: room.status,
+        skills: room.skills.map((s) => ({
+          id: s.id,
+          name: s.name,
+          order: s.order,
+        })),
         createdAt: room.createdAt,
       },
       { status: 201 },

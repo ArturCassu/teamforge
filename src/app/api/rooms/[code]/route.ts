@@ -11,6 +11,7 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
     const room = await prisma.room.findUnique({
       where: { code },
       include: {
+        skills: { orderBy: { order: 'asc' } },
         people: {
           include: { scores: true },
           orderBy: { createdAt: 'asc' },
@@ -37,6 +38,11 @@ export async function GET(_request: NextRequest, { params }: RouteParams) {
       name: room.name,
       teamSize: room.teamSize,
       status: room.status,
+      skills: room.skills.map((s) => ({
+        id: s.id,
+        name: s.name,
+        order: s.order,
+      })),
       createdAt: room.createdAt,
       updatedAt: room.updatedAt,
       people: room.people.map((p) => ({
@@ -88,7 +94,6 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       return NextResponse.json({ error: 'Room not found' }, { status: 404 });
     }
 
-    // Validate inputs
     if (status !== undefined && !VALID_STATUSES.includes(status)) {
       return NextResponse.json(
         { error: `Invalid status. Must be one of: ${VALID_STATUSES.join(', ')}` },
@@ -117,6 +122,9 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
         ...(teamSize !== undefined && { teamSize }),
         ...(name !== undefined && { name: name.trim() }),
       },
+      include: {
+        skills: { orderBy: { order: 'asc' } },
+      },
     });
 
     return NextResponse.json({
@@ -125,6 +133,11 @@ export async function PATCH(request: NextRequest, { params }: RouteParams) {
       name: updated.name,
       teamSize: updated.teamSize,
       status: updated.status,
+      skills: updated.skills.map((s) => ({
+        id: s.id,
+        name: s.name,
+        order: s.order,
+      })),
       createdAt: updated.createdAt,
       updatedAt: updated.updatedAt,
     });

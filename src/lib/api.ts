@@ -1,8 +1,14 @@
-import type { SkillScore } from './types';
+import type { SkillScore, RoomSkill } from './types';
 
 // ---------------------------------------------------------------------------
-// API response types (match what the routes actually return)
+// API response types
 // ---------------------------------------------------------------------------
+
+export interface SkillData {
+  id: string;
+  name: string;
+  order: number;
+}
 
 export interface RoomBasic {
   id: string;
@@ -10,6 +16,7 @@ export interface RoomBasic {
   name: string;
   teamSize: number;
   status: 'OPEN' | 'LOCKED' | 'DONE';
+  skills: SkillData[];
   createdAt: string;
   updatedAt?: string;
 }
@@ -63,12 +70,13 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 export async function createRoom(
   name: string,
+  skills: string[],
   teamSize?: number,
 ): Promise<RoomBasic> {
   const res = await fetch('/api/rooms', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, teamSize }),
+    body: JSON.stringify({ name, skills, teamSize }),
   });
   return handleResponse<RoomBasic>(res);
 }
@@ -143,4 +151,23 @@ export async function updateRoom(
     body: JSON.stringify(updates),
   });
   return handleResponse<RoomBasic>(res);
+}
+
+export async function addSkill(code: string, name: string): Promise<SkillData> {
+  const res = await fetch(`/api/rooms/${code}/skills`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return handleResponse<SkillData>(res);
+}
+
+export async function removeSkill(code: string, skillId: string): Promise<void> {
+  const res = await fetch(`/api/rooms/${code}/skills/${skillId}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ error: res.statusText }));
+    throw new ApiError(body.error ?? 'Failed to remove skill', res.status);
+  }
 }

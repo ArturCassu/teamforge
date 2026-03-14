@@ -1,8 +1,9 @@
-import { Person, Team, SkillScore } from './types';
-import { SKILLS } from './skills';
+import { Person, Team, RoomSkill } from './types';
 
 /**
  * Algoritmo de formação de times por complementaridade de soft skills.
+ *
+ * Agora recebe skillIds como parâmetro — as skills são definidas pela sala, não hardcoded.
  *
  * Estratégia:
  * 1. Calcula o "perfil de forças" de cada pessoa (skills onde score >= 7)
@@ -12,9 +13,13 @@ import { SKILLS } from './skills';
  *    diversidade (evita sobreposição de perfis iguais)
  */
 
-export function buildTeams(people: Person[], teamSize: number): Team[] {
+export function buildTeams(
+  people: Person[],
+  teamSize: number,
+  skills: RoomSkill[],
+): Team[] {
   if (people.length < teamSize) {
-    return [createTeam('team-1', people)];
+    return [createTeam('team-1', people, skills)];
   }
 
   const numTeams = Math.ceil(people.length / teamSize);
@@ -37,20 +42,16 @@ export function buildTeams(people: Person[], teamSize: number): Team[] {
 
   // Round 2+: greedy complementary assignment
   const remaining = people.filter((p) => !assigned.has(p.id));
-
-  // Shuffle remaining for fairness
   shuffleArray(remaining);
 
   for (const person of remaining) {
-    // Find team that benefits most from this person
     let bestTeam = 0;
     let bestGain = -Infinity;
 
     for (let t = 0; t < numTeams; t++) {
       if (teams[t].length >= teamSize) continue;
 
-      const gain = calculateComplementaryGain(teams[t], person);
-      // Slight preference for smaller teams (balance)
+      const gain = calculateComplementaryGain(teams[t], person, skills);
       const sizeBonus = (teamSize - teams[t].length) * 0.5;
       const totalGain = gain + sizeBonus;
 
@@ -63,12 +64,12 @@ export function buildTeams(people: Person[], teamSize: number): Team[] {
     teams[bestTeam].push(person);
   }
 
-  return teams.map((members, i) => createTeam(`team-${i + 1}`, members));
+  return teams.map((members, i) => createTeam(`team-${i + 1}`, members, skills));
 }
 
-function createTeam(id: string, members: Person[]): Team {
-  const coverage = calculateCoverage(members);
-  const complementarity = calculateComplementarity(members);
+function createTeam(id: string, members: Person[], skills: RoomSkill[]): Team {
+  const coverage = calculateCoverage(members, skills);
+  const complementarity = calculateComplementarity(members, skills);
   const overall = coverage * 0.6 + complementarity * 0.4;
 
   return {
@@ -80,29 +81,24 @@ function createTeam(id: string, members: Person[]): Team {
   };
 }
 
-/**
- * Coverage: % of skills where at least one member scores >= 7
- */
-function calculateCoverage(members: Person[]): number {
-  if (members.length === 0) return 0;
+/** Coverage: % of skills where at least one member scores >= 7 */
+function calculateCoverage(members: Person[], skills: RoomSkill[]): number {
+  if (members.length === 0 || skills.length === 0) return 0;
 
   let covered = 0;
-  for (const skill of SKILLS) {
+  for (const skill of skills) {
     const maxScore = Math.max(
       ...members.map((m) => getScore(m, skill.id)),
-      0
+      0,
     );
     if (maxScore >= 7) covered++;
   }
 
-  return (covered / SKILLS.length) * 100;
+  return (covered / skills.length) * 100;
 }
 
-/**
- * Complementarity: measures how diverse the team strengths are
- * Higher = less overlap in top skills
- */
-function calculateComplementarity(members: Person[]): number {
+/** Complementarity: measures how diverse the team strengths are */
+function calculateComplementarity(members: Person[], skills: RoomSkill[]): number {
   if (members.length <= 1) return 100;
 
   let totalDiversity = 0;
@@ -110,10 +106,9 @@ function calculateComplementarity(members: Person[]): number {
 
   for (let i = 0; i < members.length; i++) {
     for (let j = i + 1; j < members.length; j++) {
-      const profileA = getStrengthProfile(members[i]);
-      const profileB = getStrengthProfile(members[j]);
+      const profileA = getStrengthProfile(members[i], skills);
+      const profileB = getStrengthProfile(members[j], skills);
 
-      // Cosine distance — lower overlap = higher complementarity
       const dotProduct = profileA.reduce((sum, val, idx) => sum + val * profileB[idx], 0);
       const magA = Math.sqrt(profileA.reduce((sum, val) => sum + val * val, 0));
       const magB = Math.sqrt(profileB.reduce((sum, val) => sum + val * val, 0));
@@ -127,28 +122,29 @@ function calculateComplementarity(members: Person[]): number {
   return comparisons > 0 ? (totalDiversity / comparisons) * 100 : 100;
 }
 
-/**
- * How much a person adds to a team's uncovered skills
- */
-function calculateComplementaryGain(teamMembers: Person[], candidate: Person): number {
+/** How much a person adds to a team's uncovered skills */
+function calculateComplementaryGain(
+  teamMembers: Person[],
+  candidate: Person,
+  skills: RoomSkill[],
+): number {
   let gain = 0;
 
-  for (const skill of SKILLS) {
+  for (const skill of skills) {
     const currentMax = Math.max(
       ...teamMembers.map((m) => getScore(m, skill.id)),
-      0
+      0,
     );
     const candidateScore = getScore(candidate, skill.id);
 
-    // More gain for covering weak spots
     if (currentMax < 5 && candidateScore >= 7) {
-      gain += 3; // Big gain: covers a gap
+      gain += 3;
     } else if (currentMax < 7 && candidateScore >= 7) {
-      gain += 1.5; // Moderate gain: strengthens weak area
+      gain += 1.5;
     } else if (candidateScore > currentMax) {
-      gain += 0.3; // Small gain: marginal improvement
+      gain += 0.3;
     } else if (candidateScore >= 7 && currentMax >= 7) {
-      gain -= 0.5; // Penalty: overlap of strengths
+      gain -= 0.5;
     }
   }
 
@@ -163,10 +159,10 @@ function countStrengths(person: Person): number {
   return person.scores.filter((s) => s.score >= 7).length;
 }
 
-function getStrengthProfile(person: Person): number[] {
-  return SKILLS.map((skill) => {
+function getStrengthProfile(person: Person, skills: RoomSkill[]): number[] {
+  return skills.map((skill) => {
     const score = getScore(person, skill.id);
-    return score >= 7 ? score : 0; // Binary-ish: only strengths matter
+    return score >= 7 ? score : 0;
   });
 }
 
@@ -175,22 +171,4 @@ function shuffleArray<T>(arr: T[]): void {
     const j = Math.floor(Math.random() * (i + 1));
     [arr[i], arr[j]] = [arr[j], arr[i]];
   }
-}
-
-/**
- * Get team statistics for display
- */
-export function getTeamStats(team: Team) {
-  const avgScores: Record<string, number> = {};
-
-  for (const skill of SKILLS) {
-    const scores = team.members.map((m) => getScore(m, skill.id));
-    avgScores[skill.id] = scores.reduce((a, b) => a + b, 0) / scores.length;
-  }
-
-  const sorted = [...SKILLS].sort((a, b) => avgScores[b.id] - avgScores[a.id]);
-  const strongSkills = sorted.slice(0, 5);
-  const weakSkills = sorted.slice(-5).reverse();
-
-  return { avgScores, strongSkills, weakSkills };
 }
