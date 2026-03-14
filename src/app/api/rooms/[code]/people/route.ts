@@ -90,9 +90,9 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
           { status: 400 },
         );
       }
-      if (typeof s.score !== 'number' || s.score < 1 || s.score > 10) {
+      if (typeof s.score !== 'number' || s.score < 0 || s.score > 10) {
         return NextResponse.json(
-          { error: `Score must be a number between 1 and 10 (got ${s.score} for ${s.skillId})` },
+          { error: `Score must be a number between 0 and 10 (got ${s.score} for ${s.skillId})` },
           { status: 400 },
         );
       }

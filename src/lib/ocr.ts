@@ -76,10 +76,10 @@ function findSkillScore(lines: string[], skillName: string): number | null {
     const normalizedLine = normalizeStr(line);
 
     if (normalizedLine.includes(normalized) || fuzzyMatch(normalizedLine, normalized)) {
-      const numbers = line.match(/\b(10|[1-9])\b/g);
+      const numbers = line.match(/\b(10|[0-9])\b/g);
       if (numbers && numbers.length > 0) {
         const score = parseInt(numbers[numbers.length - 1], 10);
-        if (score >= 1 && score <= 10) return score;
+        if (score >= 0 && score <= 10) return score;
       }
     }
   }

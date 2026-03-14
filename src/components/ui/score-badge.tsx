@@ -13,7 +13,7 @@ function getBadgeClasses(score: number): string {
 }
 
 export function ScoreBadge({ score, size = 'md' }: ScoreBadgeProps) {
-  const clamped = Math.max(1, Math.min(10, Math.round(score)));
+  const clamped = Math.max(0, Math.min(10, Math.round(score)));
 
   const sizeClasses =
     size === 'sm'

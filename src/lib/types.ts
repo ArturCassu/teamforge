@@ -7,7 +7,7 @@ export interface RoomSkill {
 
 export interface SkillScore {
   skillId: string; // RoomSkill.id
-  score: number;   // 1-10
+  score: number;   // 0-10
 }
 
 export interface Person {
