@@ -192,7 +192,7 @@ export default function ParticipantPage() {
         {/* Skills list — flat, no categories */}
         <div className="space-y-2">
           <p className="text-sm text-zinc-400 font-medium">
-            Avalie cada skill de 1 a 10
+            Avalie cada skill de 0 a 10
           </p>
           <div className="space-y-2 bg-zinc-800/40 rounded-xl p-4 border border-zinc-800 max-h-[60vh] overflow-y-auto">
             {roomSkills.map((skill) => (
