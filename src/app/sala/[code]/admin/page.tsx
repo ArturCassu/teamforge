@@ -473,7 +473,22 @@ export default function AdminPage() {
                       </div>
 
                       <div className="flex justify-center">
-                        <RadarChart scores={scoresMap} skills={skills} size={220} color="#10B981" />
+                        <RadarChart
+                          scores={scoresMap}
+                          members={team.members.map((m) => ({
+                            label: m.name,
+                            scores: Object.fromEntries(
+                              skills.map((sk) => [
+                                sk.id,
+                                m.scores.find((s) => s.skillId === sk.id)?.score ?? 0,
+                              ]),
+                            ),
+                            color: '',
+                          }))}
+                          skills={skills}
+                          size={240}
+                          color="#10B981"
+                        />
                       </div>
 
                       <div className="space-y-2">
