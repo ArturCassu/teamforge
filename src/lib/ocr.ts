@@ -90,6 +90,8 @@ export async function extractSkillNames(
       'skills', 'skill', 'nome', 'name', 'nota', 'notas', 'score', 'scores',
       'avaliacao', 'avaliação', 'formulario', 'formulário', 'soft skills',
       'competencias', 'competências', 'habilidades',
+      'skills do time', 'skills do grupo', 'skills da sala',
+      'lista de skills', 'lista de competencias', 'lista',
     ]);
 
     const skills: string[] = [];
@@ -100,6 +102,7 @@ export async function extractSkillNames(
       let cleaned = line
         .replace(/^[\d\.\)\-•●○◦▪︎▸►→\s]+/, '')
         .replace(/\s*[:.\-]\s*\d+\s*$/, '')  // remove trailing ": 7" or "- 8"
+        .replace(/\s*:\s*$/, '')              // remove trailing ":" (headers)
         .trim();
 
       // Must have >= 2 alpha chars
