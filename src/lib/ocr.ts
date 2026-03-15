@@ -190,9 +190,24 @@ export async function extractSkillNames(
 
   for (const line of lines) {
     let cleaned = line
+      // Strip leading bullets, numbers, dashes
       .replace(/^[\d\.\)\-•●○◦▪︎▸►→\s]+/, '')
-      .replace(/\s*[:.\-]\s*\d+\s*$/, '')
+      // Strip trailing "score" patterns: "skill : 8", "skill - 7", "skill 10"
+      .replace(/\s*[:.\-=]\s*\d+\s*$/, '')
+      .replace(/\s*\b(10|[0-9])\s*$/, '')
+      // Strip trailing colon
       .replace(/\s*:\s*$/, '')
+      .trim();
+
+    // Strip trailing OCR junk: short non-alpha fragments after the last real word
+    // Handles "Ambição —", "Resiliência q", "Gestão [NS", "Adaptabilidade 2%"
+    cleaned = cleaned
+      // Remove trailing symbols/punctuation junk (—, &, +, =, %, [, etc.)
+      .replace(/\s*[—–\-&+=%\[\](){}<>|\\/#@!?*^~`]+\s*\S*\s*$/, '')
+      // Remove trailing 1-2 char noise (single letters/digits OCR picked up from adjacent columns)
+      .replace(/\s+[a-zA-Z0-9áàâãéèêíìóòôõúùûçñÁÀÂÃÉÈÊÍÌÓÒÔÕÚÙÛÇÑ]{1,2}$/, '')
+      // Remove trailing digits with optional symbols
+      .replace(/\s+\d+[%°]?\s*$/, '')
       .trim();
 
     const alphaCount = (cleaned.match(/[a-záàâãéèêíìóòôõúùûçñ]/gi) || []).length;
