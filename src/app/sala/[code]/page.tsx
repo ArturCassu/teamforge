@@ -273,8 +273,9 @@ export default function ParticipantPage() {
           <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/20 p-4 space-y-2 animate-fade-in">
             <div className="flex items-center justify-between">
               <span className="text-emerald-400 text-sm font-medium">
-                📷 OCR: {ocrResult.scores.length}/{roomSkills.length} skills detectadas
+                {ocrResult.aiEnhanced ? '🤖' : '📷'} OCR: {ocrResult.scores.length}/{roomSkills.length} skills detectadas
                 ({Math.round(ocrResult.confidence * 100)}% confiança)
+                {ocrResult.aiEnhanced && <span className="text-emerald-500/60 text-xs ml-1">AI</span>}
               </span>
               <button
                 type="button"
