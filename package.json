@@ -10,10 +10,10 @@
     "lint": "eslint"
   },
   "dependencies": {
+    "@google/genai": "^1.45.0",
     "@prisma/client": "^6.19.2",
     "@vercel/postgres": "^0.10.0",
     "next": "16.1.6",
-    "openai": "^6.29.0",
     "prisma": "^6.19.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
